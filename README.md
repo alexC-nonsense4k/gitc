@@ -14,9 +14,61 @@ src
 |  + mod.rs  
 +- main.rs           #contain function main and test functions.  
 ```
-## 2.gitUtils结构体
+## 2.git基础
+### 数据模型
+git 将某个顶级目录中的文件和文件夹集合的历史建模为一系列快照。在 git 术语中，文件称为“blob”，它只是一堆字节。目录称为“tree”，它将名称映射到 blob 或tree(因此目录可以包含其他目录)。      
+```
+// a file is a bunch of bytes
+type blob = array<byte>
+
+// a directory contains named files and directories
+type tree = map<string, tree | blob>
+
+// a commit has parents, metadata, and the top-level tree
+type commit = struct {
+    parents: array<commit>
+    author: string
+    message: string
+    snapshot: tree
+}
+```
+### 对象和内容寻址
+“对象”是一个 blob、tree或commit。           
+```
+type object = blob | tree | commit
+```
+在 git 数据存储中，所有对象都通过其SHA-1 散列进行内容寻址。         
+```
+objects = map<string, object>
+
+def store(object):
+    id = sha1(object)
+    objects[id] = object
+
+def load(id):
+    return objects[id]
+```
+### 参考
+现在，所有快照都可以通过它们的 SHA-1 哈希值来识别。这很不方便，因为人类不擅长记住 40 个十六进制字符的字符串。
+git 对这个问题的解决方案是为 SHA-1 哈希提供人类可读的名称，称为“引用”。引用是指向提交的指针。与不可变的对象不同，引用是可变的（可以更新以指向新的提交）。例如，master引用通常指向开发主分支中的最新提交。          
+```
+references = map<string, string>
+
+def update_reference(name, id):
+    references[name] = id
+
+def read_reference(name):
+    return references[name]
+
+def load_reference(name_or_id):
+    if name_or_id in references:
+        return load(references[name_or_id])
+    else:
+        return load(name_or_id)
+```
+## 3.gitUtils结构体
 ### blob
-blob相当于文件系统中的文件，属于git中的一个基本object     
+blob相当于文件系统中的文件，属于git中的一个基本object。     
 ```
 pub struct blob
 {
@@ -101,7 +153,7 @@ pub struct Objects
 3.blobmap以SHA1码和blob作为k和v进行记录      
 ### HashMap & BTreeMap
 本次在设计底层的数据结构时，涉及Map的地方都选用了BTreeMap而不是HashMap。这是因为HashMap是一个内部key无序的Map，而BTreeMap是内部key有序的。因为git的具体方法中总是存在对object进行序列化进行SHA1计算的过程，此时如果我们选用HashMap作为基础结构，就会出现两个内部元素完全一致的Map，计算出的SHA1是完全不同，而这种不同正是因为这两个Map内元素的排列顺序不同导致的，采用BTreeMap则会避免这种错误。     
-## 3.gitMethods git方法
+## 4.gitMethods git方法
 ### gitAdd
 ```
 pub fn gitAdd(path:String,objects:&mut Objects,head:&mut HEAD,persistence:bool)
@@ -496,7 +548,7 @@ pub fn gitMerge(head:&mut HEAD,branch2:String,message:&str,author:&str,objects:&
 ```
 gitMerge方法接受六个参数，objects为全局的objects map，head为全局head，branch2为被merge的branch的名字，message为提交信息，author是提交者的名字，persistence为一个布尔类型参数，控制是否进行持久化记录。    
 首先从head中读出当前分支的references，再读出当前branch所指向的maincommit以及被merge的branch指向的minorcommit，创建一个新commit，并用message和author给它赋值。将maincommit的所有父commit以及他自己插入到新commit的parents中，将minorcommit的所有父commit以及他自己插入到新commit的mergedparents中，利用maincommit对新commit的snapshot进行赋值。把rust中的vec作为类似于队列的数据结构来使用，对新commit的snapshot和minorcommit的snapshot进行广度优先的搜索，minorcommit的snapshot中有，但新commit的snapshot中没有的文件和文件夹，并把这些文件夹和文件加入到新commit的snapshot中。之后采用同样的广度优先搜索方式，再对新commit的snapshot中的tree和blob进行SHA1码的更新。之后计算并插入新commit的SHA1，调整当前branch指向新commit。最后根据persistence来决定是否进行持久化记录head和objects。   
-## 4.测试结果
+## 5.测试结果
 ### gitAdd测试
 ```
 #[test]
